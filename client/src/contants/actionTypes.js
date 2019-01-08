@@ -1,0 +1,10 @@
+export const REGISTER_SUCCESS = '@@app/REGISTER_SUCCESS';
+export const REGISTER_ERROR = '@@app/REGISTER_ERROR';
+export const CONFIRM_SUCCESS = '@@app/CONFIRM_SUCCESS';
+export const CONFIRM_ERROR = '@@app/CONFIRM_ERROR';
+export const LOGIN_SUCCESS = '@@app/LOGIN_SUCCESS';
+export const LOGIN_ERROR = '@@app/LOGIN_ERROR';
+export const PROGRESS = '@@app/PROGRESS';
+export const REDIRECT_TO = '@@app/REDIRECT_TO';
+export const REDIRECTED = '@@app/REDIRECTED';
+export const LOGOUT = '@@app/LOGOUT';

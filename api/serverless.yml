@@ -1,0 +1,222 @@
+# serverless.yml
+service: pinpoint-analytics
+
+plugins:
+  - serverless-static-website-plugin
+
+custom:
+  stage: ${opt:stage, self:provider.stage}
+  s3LocalPath: ../client/build
+
+provider:
+  name: aws
+  runtime: nodejs8.10
+  stage: dev
+  region: us-east-1
+  
+resources:
+  Resources:
+    # WebSite
+    WebAppS3Bucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        AccessControl: PublicRead
+        WebsiteConfiguration:
+          IndexDocument: index.html
+          ErrorDocument: index.html
+
+    WebAppS3BucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket:
+          Ref: WebAppS3Bucket
+        PolicyDocument:
+          Statement:
+            - Sid: PublicReadGetObject
+              Effect: Allow
+              Principal: "*"
+              Action:
+                - s3:GetObject
+              Resource: 
+                Fn::Join: [
+                  "", [
+                    "arn:aws:s3:::",
+                    { "Ref": "WebAppS3Bucket" },
+                    "/*"
+                  ]
+                ]
+              
+    WebAppCloudFrontDistribution:
+      Type: AWS::CloudFront::Distribution
+      Properties:
+        DistributionConfig:
+          Origins:
+            - DomainName:
+                Fn::Join: [
+                  "", [
+                    { "Ref": "WebAppS3Bucket" },
+                    ".s3.amazonaws.com"
+                  ]
+                ]
+              Id: WebApp
+              CustomOriginConfig:
+                HTTPPort: 80
+                HTTPSPort: 443
+                OriginProtocolPolicy: https-only
+          Enabled: true
+          DefaultRootObject: index.html
+          CustomErrorResponses:
+            - ErrorCode: 404
+              ResponseCode: 200
+              ResponsePagePath: /index.html
+          DefaultCacheBehavior:
+            AllowedMethods:
+              - DELETE
+              - GET
+              - HEAD
+              - OPTIONS
+              - PATCH
+              - POST
+              - PUT
+            TargetOriginId: WebApp
+            ForwardedValues:
+              QueryString: true
+              Cookies:
+                Forward: none
+            ViewerProtocolPolicy: redirect-to-https
+          PriceClass: PriceClass_100
+          ViewerCertificate:
+            CloudFrontDefaultCertificate: 'true'
+
+    # Cognito - User Pool
+    CognitoUserPoolAnalytics:
+      Type: AWS::Cognito::UserPool
+      Properties:
+        UserPoolName: analytics-user-pool
+        AutoVerifiedAttributes:
+          - email
+        MfaConfiguration: OFF
+        Schema:
+          - AttributeDataType: String
+            Name: email
+            Required: true
+            Mutable: true
+
+    ReactAppClient:
+      Type: AWS::Cognito::UserPoolClient
+      Properties:
+        GenerateSecret: false
+        RefreshTokenValidity: 200
+        UserPoolId:
+          Ref: CognitoUserPoolAnalytics
+
+    IdentityPool:
+      Type: "AWS::Cognito::IdentityPool"
+      Properties:
+        IdentityPoolName: analytics_identity_pool
+        AllowUnauthenticatedIdentities: true
+        CognitoIdentityProviders:
+          - ClientId:
+              Ref: ReactAppClient
+            ProviderName:
+              Fn::GetAtt: CognitoUserPoolAnalytics.ProviderName
+
+    IdentityPoolUnAuthRole:
+      Type: "AWS::IAM::Role"
+      Properties:
+        AssumeRolePolicyDocument: 
+          Version: "2012-10-17"
+          Statement:
+            - Effect: "Allow"
+              Principal: 
+                Federated: "cognito-identity.amazonaws.com"
+              Action: 
+                - "sts:AssumeRoleWithWebIdentity"
+              Condition:
+                StringEquals: 
+                  "cognito-identity.amazonaws.com:aud": 
+                    Ref: IdentityPool
+                "ForAnyValue:StringLike":
+                  "cognito-identity.amazonaws.com:amr": unauthenticated
+        Policies:
+          - PolicyName: "CognitoIdentityPoolUnAuthPolicy"
+            PolicyDocument: 
+              Version: "2012-10-17"
+              Statement: 
+                - Effect: "Allow"
+                  Action:
+                    - mobileanalytics:PutEvents
+                    - mobiletargeting:UpdateEndpoint
+                    - mobiletargeting:UpdateEndpointsBatch
+                    - mobiletargeting:PutEvents
+                  Resource: "*"
+
+    IdentityPoolAuthRole:
+      Type: "AWS::IAM::Role"
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: "Allow"
+              Principal:
+                Federated:
+                  - "cognito-identity.amazonaws.com"
+              Action:
+                - "sts:AssumeRoleWithWebIdentity"
+              Condition:
+                StringEquals:
+                  cognito-identity.amazonaws.com:aud:
+                    Ref: IdentityPool
+                ForAnyValue:StringLike:
+                  cognito-identity.amazonaws.com:amr: authenticated
+        Path: "/"
+        Policies:
+          - PolicyName: CognitoIdentityPoolAuthPolicy
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - mobileanalytics:PutEvents
+                    - mobiletargeting:UpdateEndpoint
+                    - mobiletargeting:UpdateEndpointsBatch
+                    - mobiletargeting:PutEvents
+                  Resource: "*"
+
+    IdentityPoolRoleAttachment:
+      Type: AWS::Cognito::IdentityPoolRoleAttachment
+      Properties:
+        IdentityPoolId:
+          Ref: IdentityPool
+        Roles:
+          authenticated:
+            Fn::GetAtt:
+              - IdentityPoolAuthRole
+              - Arn
+          unauthenticated:
+            Fn::GetAtt:
+              - IdentityPoolUnAuthRole
+              - Arn
+  Outputs:
+    UserPoolId:
+      Description: "The ID of the user pool that is created."
+      Value:
+        Ref: CognitoUserPoolAnalytics
+
+    ReactAppClientId:
+      Description: "The ID of the user pool react app client id."
+      Value:
+        Ref: ReactAppClient
+
+    IdentityPoolId:
+      Description: "The ID of the identity pool that is created."
+      Value:
+        Ref: IdentityPool
+
+    WebAppS3BucketOutput:
+      Value:
+        'Ref': WebAppS3Bucket
+
+    WebAppCloudFrontDistributionOutput:
+      Value:
+        'Fn::GetAtt': [ WebAppCloudFrontDistribution, DomainName ]
