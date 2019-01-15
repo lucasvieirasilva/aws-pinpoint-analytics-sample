@@ -18,14 +18,12 @@ Amplify.configure({
     }
 });
 
-Amplify.Logger.LOG_LEVEL = 'DEBUG'
-
 Analytics.autoTrack('pageView', {
     enable: true,
     eventName: 'pageView',
     type: 'SPA',
     provider: 'AWSPinpoint',
     getUrl: () => {
-        return window.location.origin + window.location.pathname;
+        return window.location.href;
     }
 });

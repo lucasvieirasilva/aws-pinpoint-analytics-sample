@@ -45,9 +45,9 @@ export const login = (email, password) => {
                     console.log('Begin Update Endpoint...');
 
                     const userAttributes = {};
-                    for (const key in info.attributes) {
-                        userAttributes[key] = [info.attributes[key].toString()];
-                    }
+                    Object.entries(info.attributes).forEach(([key, value]) => { 
+                        userAttributes[key] = [`${value}`]
+                    });
 
                     Analytics.updateEndpoint({
                         address: info.attributes.email,
